@@ -5,6 +5,15 @@
   <engines>
     <engine name="cordova" version=">=3.4.0"/>
   </engines>
+
+  <!-- Plugin Variables for Version Configuration -->
+  <preference name="PLAY_SERVICES_VERSION" default="18.2.0" />
+  <preference name="MLKIT_VERSION" default="17.2.0" />
+  <preference name="ZXING_VERSION" default="4.3.0" />
+  <preference name="ANDROIDX_APPCOMPAT_VERSION" default="1.6.1" />
+  <preference name="ANDROIDX_CORE_VERSION" default="1.12.0" />
+  <preference name="CAMERAX_VERSION" default="1.3.1" />
+  <preference name="ZXING_ONLY" default="false" />
   <js-module src="www/www.min.js" name="QRScanner">
     <clobbers target="QRScanner" />
   </js-module>
@@ -18,9 +27,12 @@
       <uses-permission android:name="android.permission.CAMERA" android:required="false" />
       <uses-feature android:name="android.hardware.camera" android:required="false" />
       <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+      <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     </config-file>
-    <source-file src="src/android/QRScanner.java" target-dir="src/com/bitpay/cordova/qrscanner"/>
-    <framework src="src/android/qrscanner.gradle" custom="true" type="gradleReference"/>
+      <source-file src="src/android/QRScanner.java" target-dir="src/com/bitpay/cordova/qrscanner"/>
+      <source-file src="src/android/MLKitBarcodeScanner.java" target-dir="src/com/bitpay/cordova/qrscanner"/>
+      <source-file src="src/android/BarcodeScannerFactory.java" target-dir="src/com/bitpay/cordova/qrscanner"/>
+      <framework src="src/android/qrscanner.gradle" custom="true" type="gradleReference"/>
   </platform>
   <platform name="ios">
     <config-file target="config.xml" parent="/*">

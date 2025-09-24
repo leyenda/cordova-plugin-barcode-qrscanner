@@ -1,12 +1,53 @@
 repositories {
+    google()
+    mavenCentral()
+    // jcenter() is deprecated, keeping as fallback
     jcenter()
 }
 
 dependencies {
-    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
-    implementation 'com.android.support:appcompat-v7:23.1.0'
+    // Configurable versions - can be overridden during plugin installation
+    def playServicesVersion = project.hasProperty('playServicesVersion') ? project.playServicesVersion : '18.2.0'
+    def mlKitVersion = project.hasProperty('mlKitVersion') ? project.mlKitVersion : '17.2.0'
+    def zxingVersion = project.hasProperty('zxingVersion') ? project.zxingVersion : '4.3.0'
+    def appCompatVersion = project.hasProperty('appCompatVersion') ? project.appCompatVersion : '1.6.1'
+    def coreVersion = project.hasProperty('coreVersion') ? project.coreVersion : '1.12.0'
+    def cameraXVersion = project.hasProperty('cameraXVersion') ? project.cameraXVersion : '1.3.1'
+    def zxingOnly = project.hasProperty('zxingOnly') ? project.zxingOnly.toBoolean() : false
+    
+    // ZXing Android Embedded (Always included - reliable fallback)
+    implementation "com.journeyapps:zxing-android-embedded:${zxingVersion}"
+    
+    // AndroidX Dependencies (Always needed)
+    implementation "androidx.appcompat:appcompat:${appCompatVersion}"
+    implementation "androidx.core:core:${coreVersion}"
+    
+    // ML Kit Dependencies (Only if not ZXing-only mode)
+    if (!zxingOnly) {
+        // ML Kit Barcode Scanning (Primary)
+        implementation "com.google.mlkit:barcode-scanning:${mlKitVersion}"
+        
+        // CameraX Dependencies (for ML Kit)
+        implementation "androidx.camera:camera-core:${cameraXVersion}"
+        implementation "androidx.camera:camera-camera2:${cameraXVersion}"
+        implementation "androidx.camera:camera-lifecycle:${cameraXVersion}"
+        implementation "androidx.camera:camera-view:${cameraXVersion}"
+        
+        // Google Play Services Base (for ML Kit)
+        implementation "com.google.android.gms:play-services-base:${playServicesVersion}"
+        
+        println "QRScanner: Hybrid mode enabled (ML Kit + ZXing)"
+    } else {
+        println "QRScanner: ZXing-only mode enabled (no ML Kit dependencies)"
+    }
 }
 
 android {
-    buildToolsVersion '23.0.2' // Older versions may give compile errors
+    compileSdkVersion 34
+    buildToolsVersion '34.0.0'
+    
+    defaultConfig {
+        minSdkVersion 21
+        targetSdkVersion 34
+    }
 }

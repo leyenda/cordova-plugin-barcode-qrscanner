@@ -69,6 +69,7 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
     private MLKitBarcodeScanner mlKitScanner;
     private PreviewView mlKitPreviewView;
     private boolean usingMLKit = false;
+    private BarcodeScannerFactory.PerformanceMonitor zxingPerformanceMonitor;
     
     static class QRScannerError {
         private static final int UNEXPECTED_ERROR = 0,
@@ -360,7 +361,7 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
             
             // If using ML Kit, switch its camera too
             if (usingMLKit && mlKitScanner != null) {
-                mlKitScanner.switchCamera(cameraId);
+                mlKitScanner.switchCamera(currentCameraId);
             }
             
             prepare(callbackContext);
@@ -458,12 +459,25 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
         return cordova.getActivity().getPackageManager().hasSystemFeature(feature);
     }
     
+    private boolean isMLKitAvailable() {
+        try {
+            Class<?> mlKitClass = Class.forName("com.bitpay.cordova.qrscanner.MLKitBarcodeScanner");
+            java.lang.reflect.Method isAvailableMethod = mlKitClass.getMethod("isAvailable", android.content.Context.class);
+            return (Boolean) isAvailableMethod.invoke(null, cordova.getActivity());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
     /**
      * Initialize the hybrid scanner system
      */
     private void initializeHybridScanner() {
         // Log scanner selection process
         BarcodeScannerFactory.logScannerSelection(cordova.getActivity());
+        
+        // Log camera information for debugging emulator issues
+        logCameraDebugInfo();
         
         // Determine the best scanner to use
         currentScannerType = BarcodeScannerFactory.getBestAvailableScanner(cordova.getActivity());
@@ -476,6 +490,40 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
         } else {
             usingMLKit = false;
             android.util.Log.i("QRScanner", "Using ZXing Android Embedded as fallback");
+        }
+    }
+    
+    /**
+     * Log camera debug information to help with emulator troubleshooting
+     */
+    private void logCameraDebugInfo() {
+        try {
+            android.util.Log.i("QRScanner", "=== QRScanner Camera Debug ===");
+            android.util.Log.i("QRScanner", "Current camera ID setting: " + currentCameraId);
+            
+            // Check if this matches the expected constants
+            if (currentCameraId == Camera.CameraInfo.CAMERA_FACING_BACK) {
+                android.util.Log.i("QRScanner", "Camera ID matches CAMERA_FACING_BACK (0)");
+            } else if (currentCameraId == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+                android.util.Log.i("QRScanner", "Camera ID matches CAMERA_FACING_FRONT (1)");
+            } else {
+                android.util.Log.w("QRScanner", "Camera ID does not match standard constants - this may cause issues");
+            }
+            
+            // Log available cameras
+            int numCameras = Camera.getNumberOfCameras();
+            android.util.Log.i("QRScanner", "Total cameras available: " + numCameras);
+            
+            for (int i = 0; i < numCameras; i++) {
+                Camera.CameraInfo info = new Camera.CameraInfo();
+                Camera.getCameraInfo(i, info);
+                String facing = (info.facing == Camera.CameraInfo.CAMERA_FACING_BACK) ? "BACK" : "FRONT";
+                android.util.Log.i("QRScanner", "Camera " + i + ": facing=" + facing + " (" + info.facing + ")");
+            }
+            
+            android.util.Log.i("QRScanner", "==============================");
+        } catch (Exception e) {
+            android.util.Log.e("QRScanner", "Error logging camera debug info: " + e.getMessage(), e);
         }
     }
     
@@ -589,6 +637,10 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
         try {
             android.util.Log.i("QRScanner", "Setting up ZXing camera");
             
+            // Initialize performance monitoring for ZXing
+            zxingPerformanceMonitor = new BarcodeScannerFactory.PerformanceMonitor("ZXING");
+            zxingPerformanceMonitor.startInitialization();
+            
             // Create our Preview view and set it as the content of our activity.
             mBarcodeView = new BarcodeView(cordova.getActivity());
 
@@ -621,7 +673,9 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
                 cameraPreviewing = true;
                 webView.getView().bringToFront();
                 mBarcodeView.resume();
-                android.util.Log.i("QRScanner", "ZXing camera setup completed");
+                zxingPerformanceMonitor.endInitialization();
+                zxingPerformanceMonitor.logMemoryUsage();
+                android.util.Log.i("QRScanner", "ZXing camera setup completed with performance monitoring");
             } else {
                 throw new Exception("Parent view is null");
             }
@@ -724,6 +778,11 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
 
         if(barcodeResult.getText() != null) {
             scanning = false;
+            // Log ZXing performance
+            if (zxingPerformanceMonitor != null) {
+                zxingPerformanceMonitor.endScan(barcodeResult.getText());
+                zxingPerformanceMonitor.logMemoryUsage();
+            }
             this.nextScanCallback.success(barcodeResult.getText());
             this.nextScanCallback = null;
         }
@@ -844,6 +903,10 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
                 }
                 shouldScanAgain = false;
                 final BarcodeCallback b = this;
+                // Start performance monitoring for ZXing scan
+                if (zxingPerformanceMonitor != null) {
+                    zxingPerformanceMonitor.startScan();
+                }
                 this.cordova.getActivity().runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -1012,7 +1075,7 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
         status.put("shouldShowRationale",boolToNumberString(shouldShowPermissionRationale()));
         status.put("usingMLKit",boolToNumberString(usingMLKit));
         status.put("scannerType", currentScannerType != null ? currentScannerType.toString() : "UNKNOWN");
-        status.put("mlKitAvailable",boolToNumberString(MLKitBarcodeScanner.isAvailable(cordova.getActivity())));
+        status.put("mlKitAvailable",boolToNumberString(isMLKitAvailable()));
 
         JSONObject obj = new JSONObject(status);
         PluginResult result = new PluginResult(PluginResult.Status.OK, obj);

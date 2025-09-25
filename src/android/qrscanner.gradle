@@ -5,18 +5,36 @@ repositories {
     jcenter()
 }
 
+// Handle dependency version conflicts
+configurations.all {
+    resolutionStrategy {
+        // Prefer latest versions that fix 16KB alignment issues
+        force 'androidx.core:core:1.13.1'
+        force 'androidx.appcompat:appcompat:1.7.0'
+        force 'androidx.camera:camera-core:1.4.2'
+    }
+}
+
 dependencies {
     // Configurable versions - can be overridden during plugin installation
-    def playServicesVersion = project.hasProperty('playServicesVersion') ? project.playServicesVersion : '18.2.0'
-    def mlKitVersion = project.hasProperty('mlKitVersion') ? project.mlKitVersion : '17.2.0'
+    // Updated to latest versions that fix 16KB alignment issues
+    def playServicesVersion = project.hasProperty('playServicesVersion') ? project.playServicesVersion : '18.5.0'
+    def mlKitVersion = project.hasProperty('mlKitVersion') ? project.mlKitVersion : '17.3.0'
     def zxingVersion = project.hasProperty('zxingVersion') ? project.zxingVersion : '4.3.0'
-    def appCompatVersion = project.hasProperty('appCompatVersion') ? project.appCompatVersion : '1.6.1'
-    def coreVersion = project.hasProperty('coreVersion') ? project.coreVersion : '1.12.0'
-    def cameraXVersion = project.hasProperty('cameraXVersion') ? project.cameraXVersion : '1.3.1'
+    def appCompatVersion = project.hasProperty('appCompatVersion') ? project.appCompatVersion : '1.7.0'
+    def coreVersion = project.hasProperty('coreVersion') ? project.coreVersion : '1.13.1'
+    def cameraXVersion = project.hasProperty('cameraXVersion') ? project.cameraXVersion : '1.4.2'
     def zxingOnly = project.hasProperty('zxingOnly') ? project.zxingOnly.toBoolean() : false
     
     // ZXing Android Embedded (Always included - reliable fallback)
-    implementation "com.journeyapps:zxing-android-embedded:${zxingVersion}"
+    implementation("com.journeyapps:zxing-android-embedded:${zxingVersion}") {
+        if (zxingOnly) {
+            // Exclude any potential ML Kit or Google Play Services transitive dependencies
+            exclude group: 'com.google.mlkit'
+            exclude group: 'com.google.android.gms'
+            exclude group: 'com.google.firebase'
+        }
+    }
     
     // AndroidX Dependencies (Always needed)
     implementation "androidx.appcompat:appcompat:${appCompatVersion}"
@@ -37,17 +55,45 @@ dependencies {
         implementation "com.google.android.gms:play-services-base:${playServicesVersion}"
         
         println "QRScanner: Hybrid mode enabled (ML Kit + ZXing)"
+        println "QRScanner: ML Kit version: ${mlKitVersion}"
+        println "QRScanner: Play Services version: ${playServicesVersion}"
+        println "QRScanner: CameraX version: ${cameraXVersion}"
     } else {
         println "QRScanner: ZXing-only mode enabled (no ML Kit dependencies)"
+        println "QRScanner: Only including ZXing Android Embedded: ${zxingVersion}"
+        println "QRScanner: AndroidX AppCompat: ${appCompatVersion}"
+        println "QRScanner: AndroidX Core: ${coreVersion}"
     }
 }
 
 android {
-    compileSdkVersion 34
-    buildToolsVersion '34.0.0'
+    compileSdkVersion 35
+    buildToolsVersion '35.0.0'
     
     defaultConfig {
         minSdkVersion 21
-        targetSdkVersion 34
+        targetSdkVersion 35
+    }
+    
+    // Enhanced support for 16 KB page sizes (Android 15+)
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging false
+        }
+        
+        // Exclude ML Kit native libraries when in ZXING_ONLY mode
+        if (project.hasProperty('zxingOnly') && project.zxingOnly.toBoolean()) {
+            exclude 'lib/*/libbarhopper_v3.so'
+            exclude 'lib/*/libimage_processing_util_jni.so'
+            exclude 'lib/*/libc++_shared.so'
+            exclude 'lib/*/libdynamite_loader.so'
+            exclude 'lib/*/libdynamite_runtime.so'
+        }
+    }
+    
+    // Additional configuration for Android 15 compatibility
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
 }

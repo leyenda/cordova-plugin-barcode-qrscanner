@@ -29,7 +29,7 @@ Other packages on npm with apparent solutions kept installing the original plugi
 
 **This plugin is working with the latest android and ios platform and contains fixes for compilation errors due to incompatibilities with Swift 5 and Android API level 32**
 
-## 🚀 **Latest Enhancements (2024)**
+## 🚀 **Latest Enhancements (2025)**
 
 This fork includes comprehensive Android modernization and JavaScript API enhancements:
 

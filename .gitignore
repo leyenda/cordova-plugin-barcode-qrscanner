@@ -18,4 +18,10 @@ npm-debug.log*
 # Dependency directories
 node_modules/
 
+# Generated/built files (created by npm run build)
+dist/
+src/browser/plugin.min.js
+src/browser/worker.min.js
+www/
+
 .DS_Store

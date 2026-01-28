@@ -18,9 +18,4 @@ npm-debug.log*
 # Dependency directories
 node_modules/
 
-# generated files
-dist/
-src/browser/plugin.min.js
-www/www.min.js
-
 .DS_Store

@@ -115,7 +115,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
         
         // Add memory warning observer using modern notification name
         memoryWarningObserver = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name.UIApplicationDidReceiveMemoryWarning,
+            forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -303,7 +303,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
     }
 
     func sendErrorCode(command: CDVInvokedUrlCommand, error: QRScannerError){
-        let pluginResult = CDVPluginResult(status: CDVCommandStatus_ERROR, messageAs: error.rawValue)
+        let pluginResult = CDVPluginResult(status: CDVCommandStatus.error, messageAs: error.rawValue)
         commandDelegate!.send(pluginResult, callbackId:command.callbackId)
     }
 
@@ -600,13 +600,14 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
      */
     private func completeScan(stringValue: String, scanStartTime: CFTimeInterval) {
         let scanDuration = CFAbsoluteTimeGetCurrent() - scanStartTime
-        
+
         // Update performance metrics
         updatePerformanceMetrics(scanDuration: scanDuration)
-        
+
         // Send result to JavaScript
-        let pluginResult = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: stringValue)
-        commandDelegate!.send(pluginResult, callbackId: nextScanningCommand?.callbackId!)
+        guard let command = nextScanningCommand else { return }
+        let pluginResult = CDVPluginResult(status: CDVCommandStatus.ok, messageAs: stringValue)
+        commandDelegate!.send(pluginResult, callbackId: command.callbackId)
         nextScanningCommand = nil
     }
 
@@ -805,7 +806,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
             "performanceMonitoringEnabled": performanceMonitoringEnabled
         ]
         
-        let pluginResult = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: metrics)
+        let pluginResult = CDVPluginResult(status: CDVCommandStatus.ok, messageAs: metrics)
         commandDelegate!.send(pluginResult, callbackId: command.callbackId)
     }
 
@@ -939,7 +940,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
             "hapticFeedbackAvailable": boolToNumberString(bool: isHapticFeedbackAvailable())
         ]
 
-        let pluginResult = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: status)
+        let pluginResult = CDVPluginResult(status: CDVCommandStatus.ok, messageAs: status)
         commandDelegate!.send(pluginResult, callbackId:command.callbackId)
     }
 

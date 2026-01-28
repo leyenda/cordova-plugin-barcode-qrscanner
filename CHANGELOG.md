@@ -1,3 +1,76 @@
+<a name="3.0.4"></a>
+## [3.0.4](https://github.com/bitpay/cordova-plugin-qrscanner/compare/3.0.3...3.0.4) (2026-01-28)
+
+
+### Bug Fixes
+
+* **iOS:** Replace deprecated `NSNotification.Name.UIApplicationDidReceiveMemoryWarning` with `UIApplication.didReceiveMemoryWarningNotification`
+* **iOS:** Replace deprecated `CDVCommandStatus_OK` and `CDVCommandStatus_ERROR` with `CDVCommandStatus.ok` and `CDVCommandStatus.error` for Cordova iOS 8.0 compatibility
+* **iOS:** Fix unsafe force unwrapping of optional `callbackId` in `completeScan` function
+* **iOS:** Remove `cordova-plugin-add-swift-support` dependency (no longer needed with Cordova iOS 8.0+)
+* **Android:** Release camera when not in use to prevent resource leaks
+
+
+
+<a name="3.0.3"></a>
+## [3.0.3](https://github.com/bitpay/cordova-plugin-qrscanner/compare/3.0.2...3.0.3) (2025-09-24)
+
+
+### Features
+
+* **Android:** Full Android 15 (SDK 35) compatibility with 16KB page size alignment fixes
+* **Android:** Runtime checks for ZXING_ONLY mode
+* **Android:** Reflection-based ML Kit access to remove compile-time dependencies when ZXING_ONLY mode is enabled
+* **Android:** Performance monitoring capabilities
+
+
+### Bug Fixes
+
+* **Android:** Resolve 16KB memory page alignment warnings for Android 15
+
+
+
+<a name="3.0.2"></a>
+## [3.0.2](https://github.com/bitpay/cordova-plugin-qrscanner/compare/3.0.1...3.0.2) (2025-09-24)
+
+
+### Features
+
+#### Android Improvements
+* **Android:** Hybrid Scanner System - Intelligent ML Kit + ZXing fallback for optimal performance
+* **Android:** Google ML Kit Integration - 3x faster scanning with hardware acceleration
+* **Android:** Automatic Fallback - Seamless ZXing fallback when ML Kit unavailable
+* **Android:** AndroidX migration - Updated from deprecated Support Library
+* **Android:** Modern dependencies - Target SDK 34, latest build tools
+* **Android:** Enhanced permission handling - Better UX with rationale support
+* **Android:** Performance optimizations - Memory monitoring, autofocus detection
+* **Android:** Robust error handling - New error codes and comprehensive logging
+
+#### iOS Improvements
+* **iOS:** Haptic Feedback System - Tactile confirmation for successful scans (iOS 10+)
+* **iOS:** Performance Monitoring - Real-time scan metrics and optimization insights
+* **iOS:** Vision Framework Integration - Optional enhanced validation (iOS 11+)
+* **iOS:** Advanced Hardware Detection - Autofocus, OIS, and focus mode capabilities
+* **iOS:** Memory Management - Proactive memory monitoring and low-memory handling
+* **iOS:** Enhanced Camera Controls - iOS version-specific optimizations
+* **iOS:** Comprehensive Status Reporting - Device info, performance metrics, feature availability
+* **iOS:** Safe Area Support - Modern iPhone X+ layout compatibility
+
+#### JavaScript API Enhancements
+* **JS:** New status fields - Hardware capability detection (hasAutofocus, hasFrontCamera, hasBackCamera, etc.)
+* **JS:** Enhanced error codes - Better error categorization and handling
+* **JS:** Utility methods - Smart camera switching, capability checking
+* **JS:** Permission helpers - `shouldShowPermissionRationale()` for better UX
+* **JS:** Backward compatibility - All existing code continues to work
+
+
+### Bug Fixes
+
+* **Android:** Fixed critical NullPointerException that caused crashes during camera lifecycle
+* **iOS:** Fixed iOS barcodes support
+
+
+
 <a name="3.0.1"></a>
 ## [3.0.1](https://github.com/bitpay/cordova-plugin-qrscanner/compare/2.6.0...3.0.1) (2019-03-29)
 

@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * ML Kit Barcode Scanner Implementation
@@ -318,19 +319,78 @@ public class MLKitBarcodeScanner {
     
     /**
      * Release resources
+     * CRITICAL: This must fully release the camera hardware to turn off the camera indicator
      */
     public void release() {
+        Log.i(TAG, "Starting ML Kit camera release");
+        
+        // Stop scanning first
         isScanning = false;
+        
+        // Stop image analysis before unbinding
+        if (imageAnalysis != null) {
+            try {
+                imageAnalysis.clearAnalyzer();
+                Log.i(TAG, "Image analysis analyzer cleared");
+            } catch (Exception e) {
+                Log.e(TAG, "Error clearing image analysis: " + e.getMessage(), e);
+            }
+        }
+        
+        // CRITICAL: Unbind all use cases from camera provider FIRST
+        // This releases the camera hardware and automatically releases the preview surface
         if (cameraProvider != null) {
-            cameraProvider.unbindAll();
+            try {
+                cameraProvider.unbindAll();
+                Log.i(TAG, "All camera use cases unbound - camera hardware released");
+            } catch (Exception e) {
+                Log.e(TAG, "Error unbinding camera: " + e.getMessage(), e);
+            }
         }
+        
+        // Set camera references to null after unbinding
+        // Note: unbindAll() automatically releases the preview surface, so we don't need to clear it manually
+        cameraX = null;
+        preview = null;
+        imageAnalysis = null;
+        
+        // Close barcode scanner
         if (barcodeScanner != null) {
-            barcodeScanner.close();
+            try {
+                barcodeScanner.close();
+                Log.i(TAG, "Barcode scanner closed");
+            } catch (Exception e) {
+                Log.e(TAG, "Error closing barcode scanner: " + e.getMessage(), e);
+            }
+            barcodeScanner = null;
         }
+        
+        // Shutdown camera executor
+        // Use shutdownNow() to interrupt any pending tasks and ensure immediate shutdown
         if (cameraExecutor != null) {
-            cameraExecutor.shutdown();
+            try {
+                cameraExecutor.shutdownNow();
+                // Wait a short time for executor to fully shut down
+                try {
+                    if (!cameraExecutor.awaitTermination(100, TimeUnit.MILLISECONDS)) {
+                        Log.w(TAG, "Camera executor did not terminate within timeout");
+                    }
+                } catch (InterruptedException e) {
+                    Log.w(TAG, "Interrupted while waiting for executor shutdown");
+                    Thread.currentThread().interrupt();
+                }
+                Log.i(TAG, "Camera executor shut down");
+            } catch (Exception e) {
+                Log.e(TAG, "Error shutting down executor: " + e.getMessage(), e);
+            }
+            cameraExecutor = null;
         }
-        Log.i(TAG, "Resources released");
+        
+        // Clear callback reference
+        callback = null;
+        previewView = null;
+        
+        Log.i(TAG, "ML Kit camera resources fully released");
     }
     
     /**

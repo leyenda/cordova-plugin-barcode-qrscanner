@@ -28,13 +28,19 @@ import android.hardware.Camera;
 import android.provider.Settings;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.TextureView;
 import android.widget.FrameLayout;
+import android.os.Handler;
+import android.os.Looper;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 
 @SuppressWarnings("deprecation")
@@ -698,9 +704,16 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
             @Override
             public void run() {
                 if (mBarcodeView != null) {
-                    mBarcodeView.pause();
+                    try {
+                        // CRITICAL: Stop decoding first, then pause
+                        // This ensures the camera hardware is fully released
+                        mBarcodeView.stopDecoding();
+                        mBarcodeView.pause();
+                        android.util.Log.i("QRScanner", "Camera paused and decoding stopped");
+                    } catch (Exception e) {
+                        android.util.Log.e("QRScanner", "Error closing camera: " + e.getMessage(), e);
+                    }
                 }
-
                 cameraClosing = false;
             }
         });
@@ -710,7 +723,28 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
         this.cordova.getActivity().runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                webView.getView().setBackgroundColor(Color.WHITE);
+                try {
+                    // Set background to white and ensure webView is visible
+                    webView.getView().setBackgroundColor(Color.WHITE);
+                    webView.getView().setVisibility(View.VISIBLE);
+                    webView.getView().setAlpha(1f);  // Ensure fully opaque
+                    
+                    // Get parent and ensure webView is on top
+                    ViewGroup parentView = (ViewGroup) webView.getView().getParent();
+                    if (parentView != null) {
+                        webView.getView().bringToFront();
+                        parentView.invalidate();
+                        parentView.requestLayout();
+                    }
+                    
+                    // Force layout update and redraw
+                    webView.getView().requestLayout();
+                    webView.getView().invalidate();
+                    
+                    android.util.Log.i("QRScanner", "WebView made opaque and brought to front");
+                } catch (Exception e) {
+                    android.util.Log.e("QRScanner", "Error in makeOpaque: " + e.getMessage(), e);
+                }
             }
         });
         showing = false;
@@ -954,6 +988,17 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
         this.cordova.getActivity().runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                // Handle ML Kit pause
+                if (usingMLKit && mlKitScanner != null) {
+                    try {
+                        mlKitScanner.stopScanning();
+                        android.util.Log.i("QRScanner", "ML Kit scanning stopped in pausePreview");
+                    } catch (Exception e) {
+                        android.util.Log.e("QRScanner", "Error stopping ML Kit scanning in pausePreview: " + e.getMessage(), e);
+                    }
+                }
+                
+                // Handle ZXing pause
                 if(mBarcodeView != null) {
                     mBarcodeView.pause();
                     previewing = false;
@@ -1083,40 +1128,376 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
     }
 
     private void destroy(CallbackContext callbackContext) {
+        android.util.Log.i("QRScanner", "=== DESTROY CALLED ===");
+        android.util.Log.i("QRScanner", "Current state - prepared: " + prepared + ", cameraPreviewing: " + cameraPreviewing + ", usingMLKit: " + usingMLKit + ", mlKitScanner null: " + (mlKitScanner == null));
+        
         prepared = false;
         makeOpaque();
         previewing = false;
+        
+        // CRITICAL: Release ML Kit camera IMMEDIATELY and SYNCHRONOUSLY
+        // This must happen before any async operations to ensure camera is released
+        if (usingMLKit && mlKitScanner != null) {
+            android.util.Log.i("QRScanner", "CRITICAL: Releasing ML Kit camera synchronously in destroy");
+            try {
+                // Release must be called on UI thread, but we'll do it synchronously
+                if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                    // Already on UI thread - release immediately
+                    mlKitScanner.release();
+                    android.util.Log.i("QRScanner", "ML Kit scanner released synchronously (on UI thread)");
+                } else {
+                    // Not on UI thread - use CountDownLatch to wait for release
+                    final CountDownLatch releaseLatch = new CountDownLatch(1);
+                    final MLKitBarcodeScanner scannerToRelease = mlKitScanner;
+                    this.cordova.getActivity().runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                scannerToRelease.release();
+                                android.util.Log.i("QRScanner", "ML Kit scanner released synchronously (waited for UI thread)");
+                            } catch (Exception e) {
+                                android.util.Log.e("QRScanner", "Error releasing ML Kit scanner: " + e.getMessage(), e);
+                            } finally {
+                                releaseLatch.countDown();
+                            }
+                        }
+                    });
+                    // Wait up to 500ms for release to complete
+                    try {
+                        if (!releaseLatch.await(500, TimeUnit.MILLISECONDS)) {
+                            android.util.Log.w("QRScanner", "WARNING: ML Kit release timed out");
+                        }
+                    } catch (InterruptedException e) {
+                        android.util.Log.e("QRScanner", "Interrupted while waiting for ML Kit release", e);
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                mlKitScanner = null;
+            } catch (Exception e) {
+                android.util.Log.e("QRScanner", "Error releasing ML Kit scanner synchronously: " + e.getMessage(), e);
+            }
+        }
+        
+        // Stop scanning first
         if(scanning) {
             this.cordova.getActivity().runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
                     scanning = false;
                     if (mBarcodeView != null) {
-                        mBarcodeView.stopDecoding();
+                        try {
+                            mBarcodeView.stopDecoding();
+                            android.util.Log.i("QRScanner", "Stopped decoding in destroy");
+                        } catch (Exception e) {
+                            android.util.Log.e("QRScanner", "Error stopping decoding: " + e.getMessage(), e);
+                        }
                     }
                 }
             });
             this.nextScanCallback = null;
         }
-
+        
+        // Turn off flash before closing camera
+        if(currentCameraId != Camera.CameraInfo.CAMERA_FACING_FRONT) {
+            if (lightOn) {
+                switchFlash(false, callbackContext);
+            }
+        }
+        
+        // Close camera and clean up views
         if(cameraPreviewing) {
+            android.util.Log.i("QRScanner", "cameraPreviewing is true - cleaning up views");
             this.cordova.getActivity().runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    // Clean up ML Kit scanner
-                    if (usingMLKit && mlKitScanner != null) {
-                        mlKitScanner.release();
-                        if (mlKitPreviewView != null && mlKitPreviewView.getParent() != null) {
-                            ((ViewGroup) mlKitPreviewView.getParent()).removeView(mlKitPreviewView);
+                    try {
+                        // CRITICAL: For ML Kit, release camera FIRST before removing views
+                        // This ensures camera hardware is fully released
+                        if (usingMLKit && mlKitScanner != null) {
+                            try {
+                                android.util.Log.i("QRScanner", "Releasing ML Kit scanner before view removal");
+                                mlKitScanner.release();
+                                android.util.Log.i("QRScanner", "ML Kit scanner released");
+                            } catch (Exception e) {
+                                android.util.Log.e("QRScanner", "Error releasing ML Kit scanner: " + e.getMessage(), e);
+                            }
+                            
+                            // Remove ML Kit preview view AFTER releasing camera
+                            // CRITICAL: Aggressively clear texture and remove view to prevent last frame from showing
+                            if (mlKitPreviewView != null) {
+                                try {
+                                    ViewGroup parent = null;
+                                    if (mlKitPreviewView.getParent() != null) {
+                                        parent = (ViewGroup) mlKitPreviewView.getParent();
+                                    }
+                                    
+                                    // CRITICAL: Make completely invisible and clear texture
+                                    mlKitPreviewView.setAlpha(0f);  // Make transparent
+                                    mlKitPreviewView.setVisibility(View.GONE);
+                                    mlKitPreviewView.clearAnimation();  // Clear any animations
+                                    mlKitPreviewView.destroyDrawingCache();  // Clear drawing cache
+                                    mlKitPreviewView.invalidate();  // Force invalidation
+                                    
+                                    // Remove from parent if attached
+                                    if (parent != null) {
+                                        parent.removeView(mlKitPreviewView);
+                                        // Force parent to redraw to clear the area
+                                        parent.invalidate();
+                                        parent.requestLayout();
+                                        android.util.Log.i("QRScanner", "ML Kit preview view removed from parent and parent invalidated");
+                                    }
+                                    
+                                    // Additional cleanup: try to clear texture view if it's a TextureView
+                                    try {
+                                        // PreviewView wraps a TextureView, try to clear it
+                                        View textureView = mlKitPreviewView.getChildAt(0);
+                                        if (textureView != null && textureView instanceof TextureView) {
+                                            ((TextureView) textureView).setSurfaceTextureListener(null);
+                                            android.util.Log.i("QRScanner", "Cleared TextureView surface texture listener");
+                                        }
+                                    } catch (Exception texException) {
+                                        // Not critical if this fails
+                                        android.util.Log.d("QRScanner", "Could not clear TextureView: " + texException.getMessage());
+                                    }
+                                    
+                                } catch (Exception e) {
+                                    android.util.Log.e("QRScanner", "Error removing ML Kit preview view: " + e.getMessage(), e);
+                                }
+                                mlKitPreviewView = null;
+                            }
+                            mlKitScanner = null;
+                        }
+                        
+                        // CRITICAL: For ZXing, stop decoding and pause camera FIRST before removing views
+                        if (mBarcodeView != null) {
+                            try {
+                                mBarcodeView.stopDecoding();
+                                mBarcodeView.pause();
+                                android.util.Log.i("QRScanner", "ZXing camera stopped and paused before view removal");
+                            } catch (Exception e) {
+                                android.util.Log.e("QRScanner", "Error stopping/pausing ZXing camera: " + e.getMessage(), e);
+                            }
+                            
+                            // Remove ZXing view AFTER stopping
+                            // CRITICAL: Aggressively clear to prevent last frame from showing
+                            try {
+                                ViewGroup parent = null;
+                                if (mBarcodeView.getParent() != null) {
+                                    parent = (ViewGroup) mBarcodeView.getParent();
+                                }
+                                
+                                mBarcodeView.setAlpha(0f);
+                                mBarcodeView.setVisibility(View.GONE);
+                                mBarcodeView.clearAnimation();
+                                mBarcodeView.destroyDrawingCache();
+                                mBarcodeView.invalidate();
+                                
+                                if (parent != null) {
+                                    parent.removeView(mBarcodeView);
+                                    parent.invalidate();
+                                    parent.requestLayout();
+                                    android.util.Log.i("QRScanner", "ZXing BarcodeView removed from parent and parent invalidated");
+                                }
+                            } catch (Exception e) {
+                                android.util.Log.e("QRScanner", "Error removing ZXing view: " + e.getMessage(), e);
+                            }
+                            // CRITICAL: Set to null to help garbage collection and ensure camera release
+                            mBarcodeView = null;
+                        }
+                        
+                        // CRITICAL: Ensure ALL camera views are removed from parent
+                        // Google Maps plugin puts native views UNDER webView, so we must ensure
+                        // no camera views remain that could block the map (even if references are null)
+                        try {
+                            ViewGroup parentView = (ViewGroup) webView.getView().getParent();
+                            if (parentView != null) {
+                                // CRITICAL: Iterate through all children and remove any camera-related views
+                                // This ensures no PreviewView or BarcodeView remains even if our references are stale
+                                int childCount = parentView.getChildCount();
+                                android.util.Log.i("QRScanner", "Scanning parent view for remaining camera views. Child count: " + childCount);
+                                
+                                java.util.List<View> viewsToRemove = new java.util.ArrayList<>();
+                                for (int i = 0; i < childCount; i++) {
+                                    View child = parentView.getChildAt(i);
+                                    if (child != null) {
+                                        String childClassName = child.getClass().getName();
+                                        // Check if it's a PreviewView (ML Kit) or BarcodeView (ZXing)
+                                        // Also check by class name to catch any remaining instances
+                                        if (childClassName.contains("PreviewView") || 
+                                            childClassName.contains("BarcodeView") ||
+                                            child == mlKitPreviewView || 
+                                            child == mBarcodeView) {
+                                            android.util.Log.w("QRScanner", "Found remaining camera view: " + childClassName + " - will remove");
+                                            viewsToRemove.add(child);
+                                        }
+                                    }
+                                }
+                                
+                                // Remove all found camera views
+                                for (View viewToRemove : viewsToRemove) {
+                                    try {
+                                        viewToRemove.setAlpha(0f);
+                                        viewToRemove.setVisibility(View.GONE);
+                                        if (viewToRemove.getParent() == parentView) {
+                                            parentView.removeView(viewToRemove);
+                                            android.util.Log.i("QRScanner", "Removed remaining camera view: " + viewToRemove.getClass().getName());
+                                        }
+                                    } catch (Exception removeEx) {
+                                        android.util.Log.e("QRScanner", "Error removing remaining camera view: " + removeEx.getMessage());
+                                    }
+                                }
+                                
+                                // Force parent to redraw after cleanup
+                                parentView.invalidate();
+                                parentView.requestLayout();
+                                android.util.Log.i("QRScanner", "Parent view scanned and cleaned - all camera views removed");
+                            }
+                        } catch (Exception e) {
+                            android.util.Log.e("QRScanner", "Error scanning/cleaning parent view: " + e.getMessage(), e);
+                        }
+                        
+                        // CRITICAL: Bring webView to front and ensure it's visible
+                        // This ensures other plugins (like Google Maps) can properly display
+                        // Do this AFTER all camera views are removed
+                        try {
+                            // Get parent view to ensure proper ordering
+                            ViewGroup parentView = (ViewGroup) webView.getView().getParent();
+                            if (parentView != null) {
+                                // Remove webView and re-add it to ensure it's on top
+                                parentView.removeView(webView.getView());
+                                parentView.addView(webView.getView(), new FrameLayout.LayoutParams(
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                    FrameLayout.LayoutParams.MATCH_PARENT
+                                ));
+                                android.util.Log.i("QRScanner", "WebView re-added to parent to ensure it's on top");
+                            }
+                            
+                            webView.getView().setVisibility(View.VISIBLE);
+                            webView.getView().setAlpha(1f);  // Ensure fully opaque
+                            webView.getView().bringToFront();
+                            webView.getView().requestLayout();
+                            webView.getView().invalidate();  // Force redraw
+                            
+                            // Also invalidate parent to ensure it redraws
+                            if (parentView != null) {
+                                parentView.invalidate();
+                                parentView.requestLayout();
+                            }
+                            
+                            android.util.Log.i("QRScanner", "WebView brought to front, made visible, and invalidated");
+                        } catch (Exception e) {
+                            android.util.Log.e("QRScanner", "Error bringing webView to front: " + e.getMessage(), e);
+                        }
+                        
+                        cameraPreviewing = false;
+                        android.util.Log.i("QRScanner", "Camera cleanup completed");
+                        
+                    } catch (Exception e) {
+                        android.util.Log.e("QRScanner", "Error during camera cleanup: " + e.getMessage(), e);
+                        cameraPreviewing = false;
+                        mBarcodeView = null;
+                        mlKitScanner = null;
+                        mlKitPreviewView = null;
+                    }
+                }
+            });
+        } else {
+            android.util.Log.i("QRScanner", "cameraPreviewing is false - releasing ML Kit anyway");
+            // Even if not previewing, ALWAYS release ML Kit if it exists
+            // This is critical because pausePreview() doesn't handle ML Kit
+            if (usingMLKit && mlKitScanner != null) {
+                android.util.Log.i("QRScanner", "Releasing ML Kit scanner (cameraPreviewing was false)");
+                this.cordova.getActivity().runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            mlKitScanner.release();
+                            android.util.Log.i("QRScanner", "ML Kit scanner released (from else block)");
+                        } catch (Exception e) {
+                            android.util.Log.e("QRScanner", "Error releasing ML Kit scanner in else block: " + e.getMessage(), e);
+                        }
+                        mlKitScanner = null;
+                        
+                        // Clean up ML Kit preview view - use same aggressive cleanup
+                        if (mlKitPreviewView != null) {
+                            try {
+                                ViewGroup parent = null;
+                                if (mlKitPreviewView.getParent() != null) {
+                                    parent = (ViewGroup) mlKitPreviewView.getParent();
+                                }
+                                
+                                mlKitPreviewView.setAlpha(0f);
+                                mlKitPreviewView.setVisibility(View.GONE);
+                                mlKitPreviewView.clearAnimation();
+                                mlKitPreviewView.destroyDrawingCache();
+                                mlKitPreviewView.invalidate();
+                                
+                                if (parent != null) {
+                                    parent.removeView(mlKitPreviewView);
+                                    parent.invalidate();
+                                    parent.requestLayout();
+                                }
+                                
+                                // Try to clear texture view
+                                try {
+                                    View textureView = mlKitPreviewView.getChildAt(0);
+                                    if (textureView != null && textureView instanceof TextureView) {
+                                        ((TextureView) textureView).setSurfaceTextureListener(null);
+                                    }
+                                } catch (Exception texException) {
+                                    // Not critical
+                                }
+                            } catch (Exception e) {
+                                android.util.Log.e("QRScanner", "Error removing ML Kit preview view in else block: " + e.getMessage(), e);
+                            }
+                            mlKitPreviewView = null;
+                        }
+                        
+                        // Ensure webView is visible and in front
+                        try {
+                            webView.getView().bringToFront();
+                            webView.getView().setVisibility(View.VISIBLE);
+                            webView.getView().requestLayout();
+                        } catch (Exception e) {
+                            android.util.Log.e("QRScanner", "Error bringing webView to front in else block: " + e.getMessage(), e);
                         }
                     }
-                    
-                    // Clean up ZXing scanner
-                    if (mBarcodeView != null && mBarcodeView.getParent() != null) {
-                        ((ViewGroup) mBarcodeView.getParent()).removeView(mBarcodeView);
+                });
+            } else {
+                // Even if no ML Kit, ensure webView is properly positioned
+                this.cordova.getActivity().runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            webView.getView().bringToFront();
+                            webView.getView().setVisibility(View.VISIBLE);
+                            webView.getView().requestLayout();
+                        } catch (Exception e) {
+                            android.util.Log.e("QRScanner", "Error bringing webView to front: " + e.getMessage(), e);
+                        }
                     }
-                    
-                    cameraPreviewing = false;
+                });
+            }
+            mBarcodeView = null;
+        }
+        
+        // Additional cleanup call to ensure camera is released
+        closeCamera();
+        
+        // CRITICAL: Double-check ML Kit release - sometimes it might not have been released above
+        // This ensures we ALWAYS release the camera, even if something went wrong
+        if (usingMLKit && mlKitScanner != null) {
+            android.util.Log.w("QRScanner", "WARNING: ML Kit scanner still exists after cleanup - forcing release");
+            this.cordova.getActivity().runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        mlKitScanner.release();
+                        android.util.Log.i("QRScanner", "ML Kit scanner force-released");
+                    } catch (Exception e) {
+                        android.util.Log.e("QRScanner", "Error force-releasing ML Kit scanner: " + e.getMessage(), e);
+                    }
+                    mlKitScanner = null;
                 }
             });
         }
@@ -1124,12 +1505,16 @@ public class QRScanner extends CordovaPlugin implements BarcodeCallback {
         // Reset hybrid scanner state
         currentScannerType = null;
         usingMLKit = false;
-        if(currentCameraId != Camera.CameraInfo.CAMERA_FACING_FRONT) {
-            if (lightOn)
-                switchFlash(false, callbackContext);
-        }
-        closeCamera();
         currentCameraId = 0;
-        getStatus(callbackContext);
+        
+        // Small delay to ensure camera hardware is released before returning status
+        // This helps ensure the camera indicator turns off
+        // Use Handler.postDelayed instead of Thread.sleep to avoid blocking UI thread
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                getStatus(callbackContext);
+            }
+        }, 150); // 150ms delay to allow camera hardware to release
     }
 }

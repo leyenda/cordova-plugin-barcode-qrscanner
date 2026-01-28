@@ -19,9 +19,6 @@
     <clobbers target="QRScanner" />
   </js-module>
 
-  <!-- Build hook to compile JavaScript assets if not present -->
-  <hook type="after_plugin_install" src="scripts/after_plugin_install.js" />
-
   <platform name="android">
     <config-file target="res/xml/config.xml" parent="/*">
       <feature name="QRScanner">
